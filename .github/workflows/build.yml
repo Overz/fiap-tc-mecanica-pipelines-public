@@ -1,0 +1,68 @@
+name: Reusable — Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      ecr_repository:
+        description: 'Repositório ECR do serviço (ex: fiap-mecanica-billing-service)'
+        required: true
+        type: string
+      aws_region:
+        required: false
+        type: string
+        default: us-east-1
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+    outputs:
+      image-uri:
+        description: 'URI completa da imagem publicada no ECR (registry/repo:sha)'
+        value: ${{ jobs.build.outputs.image-uri }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 🏗️ Build & Push (SHA Tag)
+    runs-on: ubuntu-latest
+    outputs:
+      image-uri: ${{ steps.push.outputs.image-uri }}
+
+    steps:
+      - name: 📥 Checkout do serviço
+        uses: actions/checkout@v4
+
+      - name: 🔐 Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: 🔑 Login ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 🐳 Build e Push
+        id: push
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          SHA_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${SHA_TAG}"
+          docker build \
+            --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+            -t "${IMAGE_URI}" \
+            -t "${REGISTRY}/${ECR_REPOSITORY}:latest" \
+            --label "git-commit=${{ github.sha }}" \
+            .
+          docker push "${IMAGE_URI}"
+          docker push "${REGISTRY}/${ECR_REPOSITORY}:latest"
+          echo "image-uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,112 @@
+name: Reusable — Deploy K8s
+
+# Diferença consciente vs. phase-3/app/.github/workflows/deploy.yml: não busca
+# credenciais de DB no Secrets Manager nem faz envsubst — o repo `infra` já
+# mantém um ExternalSecret/ClusterSecretStore que sincroniza os Secrets que os
+# Deployments de cada serviço referenciam via secretKeyRef. Aqui só resta
+# aplicar o manifesto Kustomize com a imagem recém publicada.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Overlay Kustomize (lab, develop, ...)'
+        required: true
+        type: string
+      aws_region:
+        required: false
+        type: string
+        default: us-east-1
+      eks_cluster_name:
+        description: 'Nome do cluster EKS (vazio = "<environment>-fiap-cluster")'
+        required: false
+        type: string
+        default: ''
+      k8s_deployment:
+        description: 'Nome do Deployment (ex: billing-service)'
+        required: true
+        type: string
+      image_uri:
+        description: 'Imagem publicada no ECR (saída do build.yml)'
+        required: true
+        type: string
+      rollout_timeout:
+        description: 'Timeout do kubectl rollout status (ex: 180s, 900s)'
+        required: false
+        type: string
+        default: '180s'
+      skip_rollout_check:
+        description: 'Pular a validação de rollout status'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: 🚀 K8s Deploy — ${{ inputs.k8s_deployment }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do serviço (k8s/ do repo chamador)
+        uses: actions/checkout@v4
+
+      - name: 📥 Checkout do pipelines (script compartilhado)
+        uses: actions/checkout@v4
+        with:
+          repository: clefern/fiap-tc-mecanica-pipelines
+          ref: develop
+          path: .pipelines
+
+      - name: 🔐 Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: ⚙️ Setup kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: 🔎 Resolver cluster e namespace
+        id: resolve
+        run: |
+          if [[ -n "${{ inputs.eks_cluster_name }}" ]]; then
+            echo "cluster=${{ inputs.eks_cluster_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "cluster=${{ inputs.environment }}-fiap-cluster" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "${{ inputs.environment }}" == "lab" ]]; then
+            echo "namespace=mecanica-lab" >> "$GITHUB_OUTPUT"
+          else
+            echo "namespace=mecanica" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 🔧 Configurar kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ inputs.aws_region }} \
+            --name ${{ steps.resolve.outputs.cluster }}
+
+      - name: 🚀 Aplicar manifesto
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_URI: ${{ inputs.image_uri }}
+          K8S_DEPLOYMENT: ${{ inputs.k8s_deployment }}
+          K8S_NAMESPACE: ${{ steps.resolve.outputs.namespace }}
+          ROLLOUT_TIMEOUT: ${{ inputs.rollout_timeout }}
+          SKIP_ROLLOUT_CHECK: ${{ inputs.skip_rollout_check }}
+        run: |
+          chmod +x .pipelines/scripts/k8s-deploy.sh
+          .pipelines/scripts/k8s-deploy.sh
