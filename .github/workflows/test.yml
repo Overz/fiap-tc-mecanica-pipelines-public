@@ -1,0 +1,56 @@
+name: Reusable — Testes
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '21'
+      service-name:
+        description: 'Nome do serviço, usado no nome do artefato de cobertura (ex: billing-service)'
+        required: true
+        type: string
+    secrets:
+      SONAR_TOKEN:
+        required: true
+
+jobs:
+  test:
+    name: 🧪 Testes Maven + SonarCloud
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do serviço
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # histórico completo p/ análise de PR do SonarCloud
+
+      - name: ⚙️ Configurar JDK ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: temurin
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: 🔨 Build e testes
+        run: mvn --batch-mode verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📊 Análise SonarCloud
+        run: mvn --batch-mode sonar:sonar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: 📄 Publicar relatório JaCoCo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report-${{ inputs.service-name }}
+          path: target/site/jacoco/
+          retention-days: 7

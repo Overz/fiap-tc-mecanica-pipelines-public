@@ -1,0 +1,119 @@
+name: Reusable — Build & Push
+
+# 1 ECR por serviço (fiap-mecanica-<service>), provisionado em
+# fiap-tc-mecanica-infra-k8s/conf/14-ecr.tf — revertido de volta pro design
+# original (1 repositório compartilhado + isolamento por prefixo de tag foi
+# testado e revertido: usuário preferiu manter repo por serviço, mais
+# organizado/simples pro cenário atual apesar de mais recurso Terraform).
+
+on:
+  workflow_call:
+    inputs:
+      ecr_repository:
+        description: 'Repositório ECR do serviço (ex: fiap-mecanica-billing-service)'
+        required: true
+        type: string
+      aws_region:
+        required: false
+        type: string
+        default: us-east-1
+      java-version:
+        required: false
+        type: string
+        default: '21'
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+    outputs:
+      image-uri:
+        description: 'URI completa da imagem publicada no ECR (registry/repo:sha)'
+        value: ${{ jobs.build.outputs.image-uri }}
+
+  # Disparo manual isolado, pra testar mudanças neste workflow sem precisar
+  # de um cd.yml de serviço — mesmo padrão de phase-3/app (build.yml próprio
+  # também aceita workflow_dispatch). Requer os secrets AWS_* cadastrados
+  # neste repo (fiap-tc-mecanica-pipelines) quando disparado assim.
+  workflow_dispatch:
+    inputs:
+      ecr_repository:
+        description: 'Repositório ECR do serviço (ex: fiap-mecanica-billing-service)'
+        required: true
+        type: string
+        default: 'fiap-mecanica-os-service'
+      aws_region:
+        description: 'AWS Region'
+        required: true
+        type: string
+        default: 'us-east-1'
+      java-version:
+        description: 'Versão do JDK'
+        required: true
+        type: string
+        default: '21'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 🏗️ Build & Push (SHA Tag)
+    runs-on: ubuntu-latest
+    outputs:
+      image-uri: ${{ steps.push.outputs.image-uri }}
+
+    steps:
+      - name: 📥 Checkout do serviço
+        uses: actions/checkout@v4
+
+      # Build do artefato acontece aqui (runner), não dentro do Dockerfile —
+      # o `mecanica-shared-kernel` vem do GitHub Packages, que exige
+      # autenticação mesmo sendo público; settings.xml do runner (gerado pelo
+      # setup-java) resolve isso com o GITHUB_TOKEN padrão do workflow, sem
+      # precisar de PAT nem de --build-arg dentro do Docker.
+      - name: ⚙️ Configurar JDK ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: temurin
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: 🔨 Build do artefato
+        run: mvn --batch-mode clean package -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔐 Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: 🔑 Login ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 🐳 Build e Push
+        id: push
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          SHA_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${SHA_TAG}"
+          docker build \
+            -t "${IMAGE_URI}" \
+            -t "${REGISTRY}/${ECR_REPOSITORY}:latest" \
+            --label "git-commit=${{ github.sha }}" \
+            .
+          docker push "${IMAGE_URI}"
+          docker push "${REGISTRY}/${ECR_REPOSITORY}:latest"
+          echo "image-uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
