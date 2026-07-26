@@ -11,6 +11,10 @@ on:
         required: false
         type: string
         default: us-east-1
+      java-version:
+        required: false
+        type: string
+        default: '21'
     secrets:
       AWS_ACCESS_KEY_ID:
         required: true
@@ -37,6 +41,26 @@ jobs:
       - name: 📥 Checkout do serviço
         uses: actions/checkout@v4
 
+      # Build do artefato acontece aqui (runner), não dentro do Dockerfile —
+      # o `mecanica-shared-kernel` vem do GitHub Packages, que exige
+      # autenticação mesmo sendo público; settings.xml do runner (gerado pelo
+      # setup-java) resolve isso com o GITHUB_TOKEN padrão do workflow, sem
+      # precisar de PAT nem de --build-arg dentro do Docker.
+      - name: ⚙️ Configurar JDK ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: temurin
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: 🔨 Build do artefato
+        run: mvn --batch-mode clean package -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 🔐 Configurar credenciais AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -58,7 +82,6 @@ jobs:
         run: |
           IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${SHA_TAG}"
           docker build \
-            --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             -t "${IMAGE_URI}" \
             -t "${REGISTRY}/${ECR_REPOSITORY}:latest" \
             --label "git-commit=${{ github.sha }}" \
