@@ -1,10 +1,15 @@
 name: Reusable — Build & Push
 
+# ECR_REPOSITORY é sempre `fiap-mecanica-<service_name>` (convenção fixa dos
+# 4 repos provisionados em fiap-tc-mecanica-infra-k8s/conf/14-ecr.tf) — o
+# chamador só passa o nome curto do serviço, igual ao `k8s_deployment` que o
+# deploy.yml já usa. Evita repetir/errar o nome completo do ECR em cada cd.yml.
+
 on:
   workflow_call:
     inputs:
-      ecr_repository:
-        description: 'Repositório ECR do serviço (ex: fiap-mecanica-billing-service)'
+      service_name:
+        description: 'Nome curto do serviço (ex: os-service, billing-service)'
         required: true
         type: string
       aws_region:
@@ -26,6 +31,28 @@ on:
       image-uri:
         description: 'URI completa da imagem publicada no ECR (registry/repo:sha)'
         value: ${{ jobs.build.outputs.image-uri }}
+
+  # Disparo manual isolado, pra testar mudanças neste workflow sem precisar
+  # de um cd.yml de serviço — mesmo padrão de phase-3/app (build.yml próprio
+  # também aceita workflow_dispatch). Requer os secrets AWS_* cadastrados
+  # neste repo (fiap-tc-mecanica-pipelines) quando disparado assim.
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'Nome curto do serviço (ex: os-service, billing-service)'
+        required: true
+        type: string
+        default: 'os-service'
+      aws_region:
+        description: 'AWS Region'
+        required: true
+        type: string
+        default: 'us-east-1'
+      java-version:
+        description: 'Versão do JDK'
+        required: true
+        type: string
+        default: '21'
 
 permissions:
   contents: read
@@ -77,7 +104,7 @@ jobs:
         id: push
         env:
           REGISTRY: ${{ steps.ecr-login.outputs.registry }}
-          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          ECR_REPOSITORY: fiap-mecanica-${{ inputs.service_name }}
           SHA_TAG: ${{ github.sha }}
         run: |
           IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${SHA_TAG}"

@@ -4,7 +4,10 @@ name: Reusable — Deploy K8s
 # credenciais de DB no Secrets Manager nem faz envsubst — o repo `infra` já
 # mantém um ExternalSecret/ClusterSecretStore que sincroniza os Secrets que os
 # Deployments de cada serviço referenciam via secretKeyRef. Aqui só resta
-# aplicar o manifesto Kustomize com a imagem recém publicada.
+# aplicar o manifesto Kustomize com a imagem recém publicada. Por isso também
+# não recebe `aws_account_id` (usado no app pra montar a URI da imagem via
+# envsubst) — `image_uri` já vem completo (registry+conta já embutidos) da
+# saída do build.yml, via `aws-actions/amazon-ecr-login`.
 
 on:
   workflow_call:
@@ -47,6 +50,44 @@ on:
         required: true
       AWS_SESSION_TOKEN:
         required: true
+
+  # Disparo manual isolado, mesmo motivo do build.yml — requer image_uri de
+  # uma imagem já publicada (não builda nada aqui).
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Overlay Kustomize (lab, develop, ...)'
+        required: true
+        type: string
+        default: 'lab'
+      aws_region:
+        required: true
+        type: string
+        default: 'us-east-1'
+      eks_cluster_name:
+        description: 'Nome do cluster EKS (vazio = "<environment>-fiap-cluster")'
+        required: false
+        type: string
+        default: ''
+      k8s_deployment:
+        description: 'Nome do Deployment (ex: billing-service)'
+        required: true
+        type: string
+        default: 'os-service'
+      image_uri:
+        description: 'Imagem publicada no ECR (registry/repo:tag)'
+        required: true
+        type: string
+      rollout_timeout:
+        description: 'Timeout do kubectl rollout status (ex: 180s, 900s)'
+        required: false
+        type: string
+        default: '180s'
+      skip_rollout_check:
+        description: 'Pular a validação de rollout status'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
