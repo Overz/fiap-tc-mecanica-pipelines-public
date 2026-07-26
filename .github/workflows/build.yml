@@ -1,17 +1,16 @@
 name: Reusable — Build & Push
 
-# 1 repositório ECR só (`fiap-mecanica`, compartilhado — reaproveitado do
-# monólito, que não publica mais imagem aqui, só referência arquitetural) pros
-# 4 microsserviços, não um por serviço (fiap-tc-mecanica-infra-k8s/conf/14-ecr.tf).
-# Isolamento entre serviços é por PREFIXO DE TAG (`<service_name>-<sha>`,
-# `<service_name>-latest`), não por repositório — o chamador só passa o nome
-# curto do serviço, igual ao `k8s_deployment` que o deploy.yml já usa.
+# 1 ECR por serviço (fiap-mecanica-<service>), provisionado em
+# fiap-tc-mecanica-infra-k8s/conf/14-ecr.tf — revertido de volta pro design
+# original (1 repositório compartilhado + isolamento por prefixo de tag foi
+# testado e revertido: usuário preferiu manter repo por serviço, mais
+# organizado/simples pro cenário atual apesar de mais recurso Terraform).
 
 on:
   workflow_call:
     inputs:
-      service_name:
-        description: 'Nome curto do serviço (ex: os-service, billing-service)'
+      ecr_repository:
+        description: 'Repositório ECR do serviço (ex: fiap-mecanica-billing-service)'
         required: true
         type: string
       aws_region:
@@ -40,11 +39,11 @@ on:
   # neste repo (fiap-tc-mecanica-pipelines) quando disparado assim.
   workflow_dispatch:
     inputs:
-      service_name:
-        description: 'Nome curto do serviço (ex: os-service, billing-service)'
+      ecr_repository:
+        description: 'Repositório ECR do serviço (ex: fiap-mecanica-billing-service)'
         required: true
         type: string
-        default: 'os-service'
+        default: 'fiap-mecanica-os-service'
       aws_region:
         description: 'AWS Region'
         required: true
@@ -106,16 +105,15 @@ jobs:
         id: push
         env:
           REGISTRY: ${{ steps.ecr-login.outputs.registry }}
-          ECR_REPOSITORY: fiap-mecanica
-          IMAGE_TAG: ${{ inputs.service_name }}-${{ github.sha }}
-          LATEST_TAG: ${{ inputs.service_name }}-latest
+          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          SHA_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${SHA_TAG}"
           docker build \
             -t "${IMAGE_URI}" \
-            -t "${REGISTRY}/${ECR_REPOSITORY}:${LATEST_TAG}" \
+            -t "${REGISTRY}/${ECR_REPOSITORY}:latest" \
             --label "git-commit=${{ github.sha }}" \
             .
           docker push "${IMAGE_URI}"
-          docker push "${REGISTRY}/${ECR_REPOSITORY}:${LATEST_TAG}"
+          docker push "${REGISTRY}/${ECR_REPOSITORY}:latest"
           echo "image-uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
