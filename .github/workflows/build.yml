@@ -1,9 +1,11 @@
 name: Reusable — Build & Push
 
-# ECR_REPOSITORY é sempre `fiap-mecanica-<service_name>` (convenção fixa dos
-# 4 repos provisionados em fiap-tc-mecanica-infra-k8s/conf/14-ecr.tf) — o
-# chamador só passa o nome curto do serviço, igual ao `k8s_deployment` que o
-# deploy.yml já usa. Evita repetir/errar o nome completo do ECR em cada cd.yml.
+# 1 repositório ECR só (`fiap-mecanica`, compartilhado — reaproveitado do
+# monólito, que não publica mais imagem aqui, só referência arquitetural) pros
+# 4 microsserviços, não um por serviço (fiap-tc-mecanica-infra-k8s/conf/14-ecr.tf).
+# Isolamento entre serviços é por PREFIXO DE TAG (`<service_name>-<sha>`,
+# `<service_name>-latest`), não por repositório — o chamador só passa o nome
+# curto do serviço, igual ao `k8s_deployment` que o deploy.yml já usa.
 
 on:
   workflow_call:
@@ -104,15 +106,16 @@ jobs:
         id: push
         env:
           REGISTRY: ${{ steps.ecr-login.outputs.registry }}
-          ECR_REPOSITORY: fiap-mecanica-${{ inputs.service_name }}
-          SHA_TAG: ${{ github.sha }}
+          ECR_REPOSITORY: fiap-mecanica
+          IMAGE_TAG: ${{ inputs.service_name }}-${{ github.sha }}
+          LATEST_TAG: ${{ inputs.service_name }}-latest
         run: |
-          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${SHA_TAG}"
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
           docker build \
             -t "${IMAGE_URI}" \
-            -t "${REGISTRY}/${ECR_REPOSITORY}:latest" \
+            -t "${REGISTRY}/${ECR_REPOSITORY}:${LATEST_TAG}" \
             --label "git-commit=${{ github.sha }}" \
             .
           docker push "${IMAGE_URI}"
-          docker push "${REGISTRY}/${ECR_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${ECR_REPOSITORY}:${LATEST_TAG}"
           echo "image-uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
