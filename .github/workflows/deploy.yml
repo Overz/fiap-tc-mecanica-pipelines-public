@@ -104,8 +104,11 @@ jobs:
       - name: 📥 Checkout do pipelines (script compartilhado)
         uses: actions/checkout@v4
         with:
-          repository: clefern/fiap-tc-mecanica-pipelines
-          ref: develop
+          # Divergência intencional vs. clefern/fiap-tc-mecanica-pipelines: este
+          # mirror público (Overz) faz self-checkout de si mesmo, não do repo
+          # original — ver README deste repo para o motivo do mirror existir.
+          repository: Overz/fiap-tc-mecanica-pipelines-public
+          ref: main
           path: .pipelines
 
       - name: 🔐 Configurar credenciais AWS

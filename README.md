@@ -1,5 +1,21 @@
 # Pipelines
 
+> **Este repo é um mirror público (não-fork) de
+> [`clefern/fiap-tc-mecanica-pipelines`](https://github.com/clefern/fiap-tc-mecanica-pipelines).**
+> `clefern` teve o billing do GitHub Actions bloqueado, então a execução real passou a
+> ser via forks pessoais em `Overz`. O fork `Overz/fiap-tc-mecanica-pipelines` é privado,
+> e `Overz` é conta pessoal (sem organização) — reusable workflows privados não são
+> chamáveis cross-repo mesmo dentro da mesma conta (`workflow was not found`). Como não
+> somos donos de `clefern`, não dá pra mudar a visibilidade do original. Este mirror
+> existe só para os `cd.yml` dos serviços em `Overz` conseguirem chamar `build.yml`/
+> `deploy.yml`/`test.yml` via `uses:`.
+>
+> **Divergência intencional vs. o original:** o self-checkout dentro de `deploy.yml`
+> aponta para `Overz/fiap-tc-mecanica-pipelines-public@main` em vez de
+> `clefern/fiap-tc-mecanica-pipelines@develop`. É a única diferença — todo o resto deve
+> ficar idêntico. Sempre que o original receber mudanças em `build.yml`/`deploy.yml`/
+> `test.yml`, replicar aqui manualmente e dar push na `main`.
+
 Workflows reutilizáveis de CI/CD compartilhados pelos microsserviços da Fase 4
 (`mecanica-os-service`, `mecanica-billing-service`, `mecanica-inventory-service`,
 `mecanica-workshop-service`). Não contém código de aplicação — só `.github/workflows/`
